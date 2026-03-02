@@ -1,0 +1,84 @@
+name: Twitter Stock Digest
+
+on:
+  schedule:
+    - cron: "0 7 * * 0-5"  # Daily at 07:00 UTC (Sun–Fri)
+    - cron: "0 7 * * 6"    # Weekly summary every Saturday at 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      weekly:
+        description: "Send weekly digest instead of daily"
+        required: false
+        default: "false"
+        type: boolean
+
+permissions:
+  contents: write           # Needed to commit signals.db back to repo
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run digest
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          TWS_USERNAME: ${{ secrets.TWS_USERNAME }}
+          TWS_PASSWORD: ${{ secrets.TWS_PASSWORD }}
+          TWS_EMAIL: ${{ secrets.TWS_EMAIL }}
+          TWS_EMAIL_PASSWORD: ${{ secrets.TWS_EMAIL_PASSWORD }}
+          TWS_COOKIES: ${{ secrets.TWS_COOKIES }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          WEEKLY_FLAG=""
+          if [[ "${{ github.event.schedule }}" == "0 7 * * 6" ]] || \
+             [[ "${{ inputs.weekly }}" == "true" ]]; then
+            WEEKLY_FLAG="--weekly"
+          fi
+          python main.py $WEEKLY_FLAG
+
+      - name: Commit updated signals.db
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          python export_db.py signals.db
+          git add signals.db signals.csv runs.csv
+          git diff --staged --quiet || git commit -m "chore: update signals [skip ci]"
+          git push
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          python3 - <<'EOF'
+          import os, smtplib
+          from email.mime.text import MIMEText
+
+          user = os.environ["GMAIL_USER"]
+          pwd  = os.environ["GMAIL_APP_PASSWORD"]
+          run_url = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          body = f"The Twitter Stock Digest workflow failed.\n\nLogs: {run_url}"
+          msg = MIMEText(body)
+          msg["Subject"] = "[Action Failed] Twitter Stock Digest"
+          msg["From"]    = user
+          msg["To"]      = user
+
+          with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+              smtp.ehlo()
+              smtp.starttls()
+              smtp.login(user, pwd)
+              smtp.sendmail(user, user, msg.as_string())
+          EOF

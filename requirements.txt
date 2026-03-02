@@ -1,0 +1,6 @@
+twscrape>=0.17.0
+pyyaml>=6.0.2
+python-dotenv>=1.0.1
+anthropic>=0.40.0
+yfinance>=0.2.50
+duckduckgo-search>=6.0.0
