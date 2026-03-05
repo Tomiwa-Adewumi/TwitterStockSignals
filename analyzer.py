@@ -5,6 +5,7 @@ analyzer.py — Claude-powered ticker extraction and investment signal analysis.
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 
 import anthropic
@@ -26,6 +27,21 @@ class StockSignal:
 class AnalysisResult:
     summary: str
     signals: list[StockSignal] = field(default_factory=list)
+
+
+def _extract_json(text: str) -> str:
+    """Extract JSON from a Claude response that may have prose or code fences around it."""
+    # Try code fence first (```json ... ``` or ``` ... ```)
+    m = re.search(r"```(?:json)?\s*([{\[].*?[}\]])\s*```", text, re.DOTALL)
+    if m:
+        return m.group(1)
+    # Fall back: find first JSON object or array
+    for open_ch, close_ch in [("{", "}"), ("[", "]")]:
+        start = text.find(open_ch)
+        end = text.rfind(close_ch)
+        if start != -1 and end != -1 and end > start:
+            return text[start : end + 1]
+    return text
 
 
 def _client(config: dict) -> anthropic.Anthropic:
@@ -56,12 +72,7 @@ def extract_tickers(tweet_text: str, config: dict) -> list[str]:
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = response.content[0].text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+        raw = _extract_json(response.content[0].text)
         tickers = json.loads(raw)
         if isinstance(tickers, list):
             return [t.upper() for t in tickers if isinstance(t, str)]
@@ -173,12 +184,7 @@ Return ONLY valid JSON in this exact structure:
             max_tokens=config["ai"]["max_tokens"],
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = response.content[0].text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+        raw = _extract_json(response.content[0].text)
         data = json.loads(raw)
 
         signals = []
