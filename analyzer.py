@@ -30,17 +30,37 @@ class AnalysisResult:
 
 
 def _extract_json(text: str) -> str:
-    """Extract JSON from a Claude response that may have prose or code fences around it."""
-    # Try code fence first (```json ... ``` or ``` ... ```)
-    m = re.search(r"```(?:json)?\s*([{\[].*?[}\]])\s*```", text, re.DOTALL)
+    """Extract the first complete JSON object or array from text using brace-depth tracking."""
+    # Strip markdown code fences first
+    m = re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?```", text)
     if m:
-        return m.group(1)
-    # Fall back: find first JSON object or array
-    for open_ch, close_ch in [("{", "}"), ("[", "]")]:
-        start = text.find(open_ch)
-        end = text.rfind(close_ch)
-        if start != -1 and end != -1 and end > start:
-            return text[start : end + 1]
+        text = m.group(1).strip()
+
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
+        start = text.find(start_char)
+        if start == -1:
+            continue
+        depth = 0
+        in_string = False
+        escape_next = False
+        for i, ch in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\' and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == start_char:
+                depth += 1
+            elif ch == end_char:
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
     return text
 
 
@@ -72,7 +92,9 @@ def extract_tickers(tweet_text: str, config: dict) -> list[str]:
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = _extract_json(response.content[0].text)
+        raw_text = response.content[0].text
+        logger.debug("extract_tickers raw response: %s", raw_text[:300])
+        raw = _extract_json(raw_text)
         tickers = json.loads(raw)
         if isinstance(tickers, list):
             return [t.upper() for t in tickers if isinstance(t, str)]
@@ -181,10 +203,15 @@ Return ONLY valid JSON in this exact structure:
         client = _client(config)
         response = client.messages.create(
             model=config["ai"]["model"],
-            max_tokens=config["ai"]["max_tokens"],
+            max_tokens=config["ai"].get("max_tokens", 8192),
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = _extract_json(response.content[0].text)
+        raw_text = response.content[0].text
+        if response.stop_reason == "max_tokens":
+            logger.error("analyze_tweets: response truncated (max_tokens). Raw: %s", raw_text[:500])
+            raise ValueError("Response truncated at max_tokens — increase ai.max_tokens in config.yaml")
+        logger.debug("analyze_tweets raw response: %s", raw_text[:500])
+        raw = _extract_json(raw_text)
         data = json.loads(raw)
 
         signals = []
