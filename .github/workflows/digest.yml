@@ -54,7 +54,7 @@ jobs:
           python export_db.py signals.db
           git add signals.db signals.csv runs.csv
           git diff --staged --quiet || git commit -m "chore: update signals [skip ci]"
-          git pull --rebase origin master
+          git pull --rebase -X theirs origin master
           git push
 
       - name: Notify on failure
