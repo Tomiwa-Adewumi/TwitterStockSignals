@@ -186,9 +186,15 @@ def build_html(
                 for u in (sig.source_tweets or [])
             ) or '<span style="color:#ccc">—</span>'
 
+            name_line = (
+                f"<br><span style='font-size:11px;color:#666;font-weight:normal'>"
+                f"{sig.company_name}</span>"
+                if sig.company_name
+                else ""
+            )
             sections.append(
                 f'<tr style="background:{row_bg};border-bottom:1px solid #eee;">'
-                f'<td style="padding:10px 8px;font-weight:bold;">{sig.ticker}</td>'
+                f'<td style="padding:10px 8px;font-weight:bold;">{sig.ticker}{name_line}</td>'
                 f'<td style="padding:10px 8px;">{_signal_badge(sig.action)}</td>'
                 f'<td style="padding:10px 8px;color:{conf_color};font-weight:bold;">'
                 f"{conf_label}</td>"

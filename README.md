@@ -7,11 +7,11 @@ An automated pipeline that monitors curated X (Twitter) accounts daily, extracts
 ## How It Works
 
 ```text
-Tweets (twscrape) → Ticker Extraction (Claude) → Research (yfinance + DuckDuckGo)
+Tweets (X API v2) → Ticker Extraction (Claude) → Research (yfinance + DuckDuckGo)
       → Signal History (SQLite) → Analysis (Claude) → HTML Email (Gmail SMTP)
 ```
 
-1. **Fetch tweets** — twscrape pulls today's tweets from your configured Twitter/X accounts
+1. **Fetch tweets** — X API v2 fetches today's tweets from your configured Twitter/X accounts
 2. **Extract tickers** — Claude identifies stock ticker symbols mentioned in the tweets
 3. **Research** — yfinance pulls fundamentals; DuckDuckGo fetches recent news per ticker
 4. **Load history** — SQLite (`signals.db`) provides the last 30 days of signals as context
@@ -39,7 +39,7 @@ Tweets (twscrape) → Ticker Extraction (Claude) → Research (yfinance + DuckDu
 | File | Description |
 | --- | --- |
 | `main.py` | Entry point and pipeline orchestration |
-| `scraper.py` | twscrape async tweet fetcher |
+| `scraper.py` | X API v2 Bearer Token tweet fetcher |
 | `researcher.py` | yfinance + DuckDuckGo per-ticker research |
 | `analyzer.py` | Claude: ticker extraction + signal analysis |
 | `database.py` | SQLite read/write for signal history |
@@ -57,7 +57,7 @@ Tweets (twscrape) → Ticker Extraction (Claude) → Research (yfinance + DuckDu
 
 - Python 3.11+
 - A Gmail account with an [App Password](https://support.google.com/accounts/answer/185833) enabled
-- A Twitter/X account
+- An X Developer account with a Bearer Token ([developer.x.com](https://developer.x.com))
 - An [Anthropic API key](https://console.anthropic.com)
 
 ### Required Secrets
@@ -68,26 +68,17 @@ These are set as GitHub Actions secrets (Settings → Secrets and variables → 
 | --- | --- |
 | `GMAIL_USER` | Your Gmail address |
 | `GMAIL_APP_PASSWORD` | Gmail App Password (not your main password) |
-| `TWS_USERNAME` | Twitter/X username |
-| `TWS_PASSWORD` | Twitter/X password |
-| `TWS_EMAIL` | Email associated with your Twitter account |
-| `TWS_EMAIL_PASSWORD` | Password for that email |
-| `TWS_COOKIES` | JSON string of browser cookies from twitter.com |
+| `TWITTER_BEARER_TOKEN` | X API v2 Bearer Token (from [developer.x.com](https://developer.x.com)) |
 | `ANTHROPIC_API_KEY` | From <https://console.anthropic.com> |
 
-### How to get Twitter cookies
-
-1. Log in to [twitter.com](https://twitter.com) in your browser
-2. Open DevTools → Application → Cookies → `https://twitter.com`
-3. Copy the `auth_token` and `ct0` values
-4. Format as: `TWS_COOKIES='{"auth_token": "...", "ct0": "..."}'`
+**Get your Bearer Token:** Go to [developer.x.com](https://developer.x.com) → Your App → Keys & Tokens → Bearer Token. The free tier allows ~1,500 tweets/month.
 
 ---
 
 ## Running on GitHub Actions (recommended)
 
 1. Fork this repo
-2. Add all secrets listed above under **Settings → Secrets and variables → Actions**
+2. Add the four secrets listed above under **Settings → Secrets and variables → Actions**
 3. The workflow runs automatically every day at **07:00 UTC**
 4. You can also trigger it manually via **Actions → Daily Digest → Run workflow**
 
@@ -161,15 +152,17 @@ sqlite3 signals.db "SELECT * FROM runs ORDER BY id DESC LIMIT 5;"
 
 ## Troubleshooting
 
-### `NoAccountError` or authentication failures
+### Bearer Token errors
 
-Twitter cookies expire periodically. To fix:
+If you see `401 Unauthorized` or `403 Forbidden` from the Twitter API:
 
-1. Log in to twitter.com in your browser
-2. Re-export `auth_token` and `ct0` from DevTools → Application → Cookies
-3. Update the `TWS_COOKIES` secret in GitHub Actions (or your local `.env`)
-4. Delete `accounts.db` locally if it exists — twscrape will re-seed on the next run
+1. Verify `TWITTER_BEARER_TOKEN` is set correctly in GitHub Actions secrets (or your local `.env`)
+2. Regenerate the Bearer Token at [developer.x.com](https://developer.x.com) → Your App → Keys & Tokens
+3. Update the secret and re-run
 
 ### Rate limits
 
-If you see rate limit errors, reduce the number of tracked users in `config.yaml` or increase the delay between requests in `researcher.py`.
+If you see `429 Too Many Requests`, you have hit the X API free tier limit (~1,500 tweets/month). Options:
+- Reduce the number of tracked users in `config.yaml`
+- Upgrade to a paid X API tier
+- Increase the delay between requests in `researcher.py`

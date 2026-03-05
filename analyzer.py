@@ -4,6 +4,7 @@ analyzer.py — Claude-powered ticker extraction and investment signal analysis.
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 
 import anthropic
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StockSignal:
     ticker: str
+    company_name: str    # populated from research["price_data"]["shortName"]
     action: str          # BUY | SELL | HOLD | INVESTIGATE
     confidence: str      # HIGH | MEDIUM | LOW
     reasoning: str
@@ -125,6 +127,12 @@ def analyze_tweets(
     research_text = _format_research(research)
     history_text = _format_history(history_summary)
 
+    criteria_path = os.path.join(os.path.dirname(__file__), "analysis_criteria.md")
+    criteria_section = ""
+    if os.path.exists(criteria_path):
+        with open(criteria_path) as f:
+            criteria_section = f"\n\n## Custom Analysis Criteria\n{f.read()}"
+
     prompt = f"""You are an expert stock analyst. Analyze the following tweets and research data to produce actionable investment signals.
 
 ## Today's Tweets
@@ -137,7 +145,7 @@ def analyze_tweets(
 {history_text}
 
 ## Instructions
-For each ticker ({tickers_list}), produce one of: BUY, SELL, HOLD, or INVESTIGATE.
+For each ticker ({tickers_list}), produce one of: BUY, SELL, HOLD, or INVESTIGATE.{criteria_section}
 - BUY: Strong positive sentiment + supportive fundamentals/news
 - SELL: Strong negative sentiment or concerning fundamentals
 - HOLD: Mixed or neutral signals
@@ -175,9 +183,12 @@ Return ONLY valid JSON in this exact structure:
 
         signals = []
         for s in data.get("signals", []):
+            ticker = s.get("ticker", "").upper()
+            company_name = research.get(ticker, {}).get("price_data", {}).get("shortName", "")
             signals.append(
                 StockSignal(
-                    ticker=s.get("ticker", "").upper(),
+                    ticker=ticker,
+                    company_name=company_name,
                     action=s.get("action", "INVESTIGATE").upper(),
                     confidence=s.get("confidence", "LOW").upper(),
                     reasoning=s.get("reasoning", ""),

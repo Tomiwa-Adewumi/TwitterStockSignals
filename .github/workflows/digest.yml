@@ -33,11 +33,7 @@ jobs:
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          TWS_USERNAME: ${{ secrets.TWS_USERNAME }}
-          TWS_PASSWORD: ${{ secrets.TWS_PASSWORD }}
-          TWS_EMAIL: ${{ secrets.TWS_EMAIL }}
-          TWS_EMAIL_PASSWORD: ${{ secrets.TWS_EMAIL_PASSWORD }}
-          TWS_COOKIES: ${{ secrets.TWS_COOKIES }}
+          TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           WEEKLY_FLAG=""

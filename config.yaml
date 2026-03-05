@@ -7,8 +7,6 @@ users:
   - zephyr_z9
   - labubu_trader
 
-accounts_db: accounts.db
-
 email:
   subject: "Twitter Stock Digest"
   from: "tomiwa.m.adewumi@gmail.com"

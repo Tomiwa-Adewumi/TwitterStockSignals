@@ -69,7 +69,7 @@ async def run(config: dict, period: str, dry_run: bool, weekly: bool = False) ->
     # 1. Fetch tweets
     logger.info("Step 1/7: Fetching tweets...")
     try:
-        tweet_map = await fetch_all(config["users"], config["accounts_db"])
+        tweet_map = await fetch_all(config["users"])
     except Exception as exc:
         logger.error("Fatal: tweet fetch failed: %s", exc)
         sys.exit(1)

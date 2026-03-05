@@ -11,15 +11,25 @@ from duckduckgo_search import DDGS
 logger = logging.getLogger(__name__)
 
 _YFINANCE_FIELDS = [
+    "shortName",
     "currentPrice",
     "previousClose",
     "fiftyTwoWeekHigh",
     "fiftyTwoWeekLow",
     "trailingPE",
+    "forwardPE",
+    "priceToBook",
     "targetMeanPrice",
     "recommendationKey",
     "marketCap",
-    "shortName",
+    "earningsGrowth",
+    "revenueGrowth",
+    "grossMargins",
+    "operatingMargins",
+    "returnOnEquity",
+    "debtToEquity",
+    "sector",
+    "industry",
 ]
 
 
@@ -37,7 +47,7 @@ def get_stock_data(ticker: str) -> dict:
         return {}
 
 
-def get_news_headlines(ticker: str, max_results: int = 5) -> list[str]:
+def get_news_headlines(ticker: str, max_results: int = 10) -> list[str]:
     """
     Fetch recent news headlines for a ticker via DuckDuckGo.
 
