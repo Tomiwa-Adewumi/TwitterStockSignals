@@ -9,10 +9,10 @@ users:
 
 email:
   subject: "Twitter Stock Digest"
-  from: "tomiwa.m.adewumi@gmail.com"
-  to: "tomiwa.m.adewumi@gmail.com"
+  to: ""
   smtp_host: smtp.gmail.com
   smtp_port: 587
+  timeout_seconds: 30
 
 ai:
   model: "claude-opus-4-6"

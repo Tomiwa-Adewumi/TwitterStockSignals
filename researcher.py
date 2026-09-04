@@ -42,7 +42,7 @@ def get_stock_data(ticker: str) -> dict:
     try:
         info = yf.Ticker(ticker).info
         return {k: info.get(k) for k in _YFINANCE_FIELDS if info.get(k) is not None}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - optional provider must degrade safely
         logger.warning("yfinance lookup failed for %s: %s", ticker, exc)
         return {}
 
@@ -67,7 +67,7 @@ def get_news_headlines(ticker: str, max_results: int = 10) -> list[str]:
                 parts.append(f"({date})")
             headlines.append(" ".join(parts))
         return headlines
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - optional provider must degrade safely
         logger.warning("DuckDuckGo news failed for %s: %s", ticker, exc)
         return []
 

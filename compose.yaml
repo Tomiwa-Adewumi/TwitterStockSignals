@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8000:8000"
+    volumes:
+      - signals-data:/data
+    stop_grace_period: 30s
+
+volumes:
+  signals-data:

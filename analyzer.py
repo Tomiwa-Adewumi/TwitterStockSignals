@@ -7,18 +7,26 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 import anthropic
 
 logger = logging.getLogger(__name__)
+VALID_ACTIONS = {"BUY", "SELL", "HOLD", "INVESTIGATE"}
+VALID_CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
+TICKER_PATTERN = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
+
+
+class AnalysisProviderError(RuntimeError):
+    """Raised when Claude cannot return a usable analysis response."""
 
 
 @dataclass
 class StockSignal:
     ticker: str
-    company_name: str    # populated from research["price_data"]["shortName"]
-    action: str          # BUY | SELL | HOLD | INVESTIGATE
-    confidence: str      # HIGH | MEDIUM | LOW
+    company_name: str  # populated from research["price_data"]["shortName"]
+    action: str  # BUY | SELL | HOLD | INVESTIGATE
+    confidence: str  # HIGH | MEDIUM | LOW
     reasoning: str
     source_tweets: list[str] = field(default_factory=list)
 
@@ -36,7 +44,7 @@ def _extract_json(text: str) -> str:
     if m:
         text = m.group(1).strip()
 
-    for start_char, end_char in [('{', '}'), ('[', ']')]:
+    for start_char, end_char in [("{", "}"), ("[", "]")]:
         start = text.find(start_char)
         if start == -1:
             continue
@@ -47,7 +55,7 @@ def _extract_json(text: str) -> str:
             if escape_next:
                 escape_next = False
                 continue
-            if ch == '\\' and in_string:
+            if ch == "\\" and in_string:
                 escape_next = True
                 continue
             if ch == '"':
@@ -68,6 +76,18 @@ def _client(config: dict) -> anthropic.Anthropic:
     return anthropic.Anthropic()
 
 
+def _response_text(response: Any) -> str:
+    """Collect text blocks while rejecting an empty/non-text SDK response."""
+    text = "".join(
+        block.text
+        for block in response.content
+        if isinstance(getattr(block, "text", None), str)
+    )
+    if not text:
+        raise AnalysisProviderError("Claude returned no text content")
+    return text
+
+
 def extract_tickers(tweet_text: str, config: dict) -> list[str]:
     """
     Call Claude to extract stock tickers mentioned in tweets.
@@ -81,7 +101,7 @@ def extract_tickers(tweet_text: str, config: dict) -> list[str]:
         "Given these tweets, list every stock ticker symbol mentioned "
         "(e.g. AAPL, NVDA, TSLA). If a company name is mentioned but not the ticker, "
         "infer the ticker. Return ONLY a JSON array of uppercase ticker strings: "
-        '[\"AAPL\", \"NVDA\"]\nIf no stocks are mentioned, return [].\n\n'
+        '["AAPL", "NVDA"]\nIf no stocks are mentioned, return [].\n\n'
         f"Tweets:\n{tweet_text}"
     )
 
@@ -92,19 +112,26 @@ def extract_tickers(tweet_text: str, config: dict) -> list[str]:
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw_text = response.content[0].text
+        raw_text = _response_text(response)
         logger.debug("extract_tickers raw response: %s", raw_text[:300])
         raw = _extract_json(raw_text)
         tickers = json.loads(raw)
         if isinstance(tickers, list):
-            return [t.upper() for t in tickers if isinstance(t, str)]
+            normalized = [
+                ticker.strip().upper() for ticker in tickers if isinstance(ticker, str)
+            ]
+            return list(
+                dict.fromkeys(
+                    ticker for ticker in normalized if TICKER_PATTERN.fullmatch(ticker)
+                )
+            )
         return []
     except json.JSONDecodeError as exc:
-        logger.warning("Failed to parse ticker JSON from Claude: %s", exc)
-        return []
+        raise AnalysisProviderError(
+            "Claude returned invalid JSON while extracting tickers"
+        ) from exc
     except Exception as exc:
-        logger.error("Ticker extraction failed: %s", exc)
-        return []
+        raise AnalysisProviderError("Claude ticker extraction failed") from exc
 
 
 def _format_research(research: dict[str, dict]) -> str:
@@ -206,10 +233,15 @@ Return ONLY valid JSON in this exact structure:
             max_tokens=config["ai"].get("max_tokens", 8192),
             messages=[{"role": "user", "content": prompt}],
         )
-        raw_text = response.content[0].text
+        raw_text = _response_text(response)
         if response.stop_reason == "max_tokens":
-            logger.error("analyze_tweets: response truncated (max_tokens). Raw: %s", raw_text[:500])
-            raise ValueError("Response truncated at max_tokens — increase ai.max_tokens in config.yaml")
+            logger.error(
+                "analyze_tweets: response truncated (max_tokens). Raw: %s",
+                raw_text[:500],
+            )
+            raise AnalysisProviderError(
+                "Claude response was truncated; increase ai.max_tokens"
+            )
         logger.debug("analyze_tweets raw response: %s", raw_text[:500])
         raw = _extract_json(raw_text)
         data = json.loads(raw)
@@ -217,13 +249,29 @@ Return ONLY valid JSON in this exact structure:
         signals = []
         for s in data.get("signals", []):
             ticker = s.get("ticker", "").upper()
-            company_name = research.get(ticker, {}).get("price_data", {}).get("shortName", "")
+            action = s.get("action", "INVESTIGATE").upper()
+            confidence = s.get("confidence", "LOW").upper()
+            if not TICKER_PATTERN.fullmatch(ticker):
+                raise AnalysisProviderError(
+                    f"Claude returned an invalid ticker: {ticker!r}"
+                )
+            if action not in VALID_ACTIONS:
+                raise AnalysisProviderError(
+                    f"Claude returned an invalid action for {ticker}"
+                )
+            if confidence not in VALID_CONFIDENCE:
+                raise AnalysisProviderError(
+                    f"Claude returned invalid confidence for {ticker}"
+                )
+            company_name = (
+                research.get(ticker, {}).get("price_data", {}).get("shortName", "")
+            )
             signals.append(
                 StockSignal(
                     ticker=ticker,
                     company_name=company_name,
-                    action=s.get("action", "INVESTIGATE").upper(),
-                    confidence=s.get("confidence", "LOW").upper(),
+                    action=action,
+                    confidence=confidence,
                     reasoning=s.get("reasoning", ""),
                     source_tweets=s.get("source_tweets", []),
                 )
@@ -235,14 +283,10 @@ Return ONLY valid JSON in this exact structure:
         )
 
     except json.JSONDecodeError as exc:
-        logger.error("Failed to parse analysis JSON from Claude: %s", exc)
-        return AnalysisResult(
-            summary="Analysis unavailable (JSON parse error).",
-            signals=[],
-        )
+        raise AnalysisProviderError(
+            "Claude returned invalid JSON for signal analysis"
+        ) from exc
+    except AnalysisProviderError:
+        raise
     except Exception as exc:
-        logger.error("Analysis failed: %s", exc)
-        return AnalysisResult(
-            summary=f"Analysis unavailable ({exc}).",
-            signals=[],
-        )
+        raise AnalysisProviderError("Claude signal analysis failed") from exc

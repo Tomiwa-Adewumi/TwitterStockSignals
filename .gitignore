@@ -30,3 +30,9 @@ env/
 
 # Logs
 *.log
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

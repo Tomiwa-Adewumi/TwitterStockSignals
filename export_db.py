@@ -1,4 +1,7 @@
-import csv, json, sqlite3, sys
+import csv
+import json
+import sqlite3
+import sys
 
 DB = sys.argv[1] if len(sys.argv) > 1 else "signals.db"
 
@@ -15,7 +18,16 @@ with open("signals.csv", "w", newline="") as f:
     w.writerow(["date", "ticker", "action", "confidence", "reasoning", "tweet_urls"])
     for r in rows:
         urls = ", ".join(json.loads(r["source_tweet_urls"] or "[]"))
-        w.writerow([r["run_date"], r["ticker"], r["action"], r["confidence"], r["reasoning"], urls])
+        w.writerow(
+            [
+                r["run_date"],
+                r["ticker"],
+                r["action"],
+                r["confidence"],
+                r["reasoning"],
+                urls,
+            ]
+        )
 
 # runs.csv
 with open("runs.csv", "w", newline="") as f:

@@ -2,11 +2,13 @@
 emailer.py — HTML email builder and SMTP sender for the stock digest.
 """
 
+import html
 import logging
 import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,17 @@ _VIBE_COLORS = {
     "Neutral": ("#d68910", "#fef9e7"),
     "Mixed": ("#6a3fa8", "#ede0f8"),
 }
+
+
+def _escape(value: object) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _safe_url(value: object) -> str | None:
+    url = str(value)
+    if urlparse(url).scheme not in {"http", "https"}:
+        return None
+    return _escape(url)
 
 
 def _vibe(actions: dict) -> str:
@@ -70,18 +83,19 @@ def _weekly_section(weekly_rollup: dict) -> str:
         row_bg = "#fff" if i % 2 == 0 else "#f8f8f8"
         actions = info["actions"]
         breakdown = ", ".join(
-            f'<span style="color:{_ACTION_COLORS.get(a,"#555")};font-weight:bold;">'
-            f"{a}</span> ×{n}"
+            f'<span style="color:{_ACTION_COLORS.get(a, "#555")};font-weight:bold;">'
+            f"{_escape(a)}</span> ×{n}"
             for a, n in sorted(actions.items(), key=lambda kv: -kv[1])
         )
         vibe = _vibe(actions)
         rows_html.append(
             f'<tr style="background:{row_bg};border-bottom:1px solid #eee;">'
-            f'<td style="padding:10px 8px;font-weight:bold;">{ticker}</td>'
+            f'<td style="padding:10px 8px;font-weight:bold;">{_escape(ticker)}</td>'
             f'<td style="padding:10px 8px;text-align:center;">{info["total"]}</td>'
             f'<td style="padding:10px 8px;font-size:13px;">{breakdown}</td>'
             f'<td style="padding:10px 8px;">{_vibe_badge(vibe)}</td>'
-            f'<td style="padding:10px 8px;font-size:12px;color:#888;">{info["last_seen"]}</td>'
+            f'<td style="padding:10px 8px;font-size:12px;color:#888;">'
+            f"{_escape(info['last_seen'])}</td>"
             "</tr>"
         )
 
@@ -98,9 +112,7 @@ def _weekly_section(weekly_rollup: dict) -> str:
         '<th style="padding:10px 8px;text-align:left;">Overall Vibe</th>'
         '<th style="padding:10px 8px;text-align:left;">Last Signal</th>'
         "</tr>"
-        "</thead><tbody>"
-        + "".join(rows_html)
-        + "</tbody></table>"
+        "</thead><tbody>" + "".join(rows_html) + "</tbody></table>"
         "</div>"
     )
 
@@ -118,7 +130,7 @@ def _trend_cell(ticker: str, history_summary: dict) -> str:
     info = history_summary.get(ticker)
     if not info:
         return '<span style="color:#999">—</span>'
-    parts = [f"{a}×{n}" for a, n in sorted(info["actions"].items())]
+    parts = [f"{_escape(a)}×{n}" for a, n in sorted(info["actions"].items())]
     return f'<span style="font-size:12px;color:#555">{", ".join(parts)}</span>'
 
 
@@ -141,7 +153,7 @@ def build_html(
         '<div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;'
         'padding:20px;background:#f9f9f9;">'
         '<h1 style="color:#222;border-bottom:3px solid #333;padding-bottom:8px;">'
-        f"Twitter Stock Digest — {period}</h1>"
+        f"Twitter Stock Digest — {_escape(period)}</h1>"
     )
 
     # ── Part 1: AI Analysis ──────────────────────────────────────────────────
@@ -154,7 +166,7 @@ def build_html(
     if analysis.summary:
         sections.append(
             f'<p style="color:#444;line-height:1.6;background:#f0f4ff;'
-            f'padding:12px;border-radius:4px;">{analysis.summary}</p>'
+            f'padding:12px;border-radius:4px;">{_escape(analysis.summary)}</p>'
         )
 
     if analysis.signals:
@@ -181,25 +193,32 @@ def build_html(
                 if sig.confidence == "MEDIUM"
                 else "#999"
             )
-            source_links = " ".join(
-                f'<a href="{u}" style="color:#1a6fa8;font-size:11px;">↗</a>'
-                for u in (sig.source_tweets or [])
-            ) or '<span style="color:#ccc">—</span>'
+            safe_sources = filter(
+                None, (_safe_url(url) for url in (sig.source_tweets or []))
+            )
+            source_links = (
+                " ".join(
+                    f'<a href="{url}" style="color:#1a6fa8;font-size:11px;">↗</a>'
+                    for url in safe_sources
+                )
+                or '<span style="color:#ccc">—</span>'
+            )
 
             name_line = (
                 f"<br><span style='font-size:11px;color:#666;font-weight:normal'>"
-                f"{sig.company_name}</span>"
+                f"{_escape(sig.company_name)}</span>"
                 if sig.company_name
                 else ""
             )
             sections.append(
                 f'<tr style="background:{row_bg};border-bottom:1px solid #eee;">'
-                f'<td style="padding:10px 8px;font-weight:bold;">{sig.ticker}{name_line}</td>'
+                f'<td style="padding:10px 8px;font-weight:bold;">'
+                f"{_escape(sig.ticker)}{name_line}</td>"
                 f'<td style="padding:10px 8px;">{_signal_badge(sig.action)}</td>'
                 f'<td style="padding:10px 8px;color:{conf_color};font-weight:bold;">'
-                f"{conf_label}</td>"
+                f"{_escape(conf_label)}</td>"
                 f'<td style="padding:10px 8px;font-size:13px;color:#333;">'
-                f"{sig.reasoning}</td>"
+                f"{_escape(sig.reasoning)}</td>"
                 f'<td style="padding:10px 8px;">'
                 f"{_trend_cell(sig.ticker, history_summary)}</td>"
                 f'<td style="padding:10px 8px;">{source_links}</td>'
@@ -233,27 +252,37 @@ def build_html(
         sections.append(
             '<div style="background:#fff;border:1px solid #ddd;border-radius:6px;'
             'padding:16px;margin-bottom:16px;">'
-            f'<h3 style="margin:0 0 12px;color:#1a1a2e;">@{username}</h3>'
+            f'<h3 style="margin:0 0 12px;color:#1a1a2e;">@{_escape(username)}</h3>'
         )
         for tweet in tweets:
-            date_str = tweet.date.strftime("%Y-%m-%d %H:%M UTC") if hasattr(tweet, "date") and tweet.date else ""
+            date_str = (
+                tweet.date.strftime("%Y-%m-%d %H:%M UTC")
+                if hasattr(tweet, "date") and tweet.date
+                else ""
+            )
             likes = getattr(tweet, "likeCount", 0) or 0
             rts = getattr(tweet, "retweetCount", 0) or 0
             url = getattr(tweet, "url", "") or ""
-            text = getattr(tweet, "rawContent", "") or getattr(tweet, "content", "") or str(tweet)
+            text = (
+                getattr(tweet, "rawContent", "")
+                or getattr(tweet, "content", "")
+                or str(tweet)
+            )
 
             sections.append(
                 '<div style="border-left:3px solid #ccc;padding:8px 12px;'
                 'margin-bottom:10px;">'
-                f'<p style="margin:0 0 6px;color:#333;font-size:14px;">{text}</p>'
+                f'<p style="margin:0 0 6px;color:#333;font-size:14px;">'
+                f"{_escape(text)}</p>"
                 '<p style="margin:0;font-size:12px;color:#888;">'
-                f'<span>{date_str}</span>'
-                f'&nbsp;·&nbsp;<span>♥ {likes}</span>'
-                f'&nbsp;·&nbsp;<span>↻ {rts}</span>'
+                f"<span>{date_str}</span>"
+                f"&nbsp;·&nbsp;<span>♥ {likes}</span>"
+                f"&nbsp;·&nbsp;<span>↻ {rts}</span>"
             )
-            if url:
+            safe_url = _safe_url(url) if url else None
+            if safe_url:
                 sections.append(
-                    f'&nbsp;·&nbsp;<a href="{url}" style="color:#1a6fa8;">View</a>'
+                    f'&nbsp;·&nbsp;<a href="{safe_url}" style="color:#1a6fa8;">View</a>'
                 )
             sections.append("</p></div>")
 
@@ -292,19 +321,24 @@ def send_digest(html_body: str, analysis, tweet_map: dict, config: dict) -> None
     email_cfg = config["email"]
     gmail_user = os.environ["GMAIL_USER"]
     gmail_password = os.environ["GMAIL_APP_PASSWORD"]
+    recipient = os.environ.get("EMAIL_TO") or email_cfg.get("to") or gmail_user
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = email_cfg["subject"]
     msg["From"] = gmail_user
-    msg["To"] = email_cfg["to"]
+    msg["To"] = recipient
 
     msg.attach(MIMEText(_plain_text(analysis, tweet_map), "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
-    with smtplib.SMTP(email_cfg["smtp_host"], email_cfg["smtp_port"]) as smtp:
+    with smtplib.SMTP(
+        email_cfg["smtp_host"],
+        email_cfg["smtp_port"],
+        timeout=email_cfg.get("timeout_seconds", 30),
+    ) as smtp:
         smtp.ehlo()
         smtp.starttls()
         smtp.login(gmail_user, gmail_password)
-        smtp.sendmail(gmail_user, email_cfg["to"], msg.as_string())
+        smtp.sendmail(gmail_user, recipient, msg.as_string())
 
-    logger.info("Digest email sent to %s.", email_cfg["to"])
+    logger.info("Digest email sent to %s.", recipient)
