@@ -93,3 +93,7 @@ end-to-end pipeline tests. External systems are mocked at adapter boundaries.
 GitHub Actions runs formatting, linting, mypy, and coverage-gated tests on
 Python 3.11 and 3.12, then builds and smoke-tests the container. Both matrix
 jobs and the container job are required by branch protection.
+
+## Storage and reproducible demonstration
+
+Runtime database and CSV exports are ignored by Git. The API uses a persistent Docker volume. The scheduled GitHub workflow restores and uploads a SQLite artifact (90-day retention), using the last tracked database only as an initial migration seed. Keep independent backups; workflow artifacts are not permanent database storage. `python demo.py` exercises real orchestration and persistence with synthetic adapters, without credentials, provider calls, or delivery.
