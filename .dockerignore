@@ -12,3 +12,8 @@ htmlcov
 *.pyc
 *.log
 tests
+
+# Never bake local runtime history into an image.
+signals.db*
+signals.csv
+runs.csv

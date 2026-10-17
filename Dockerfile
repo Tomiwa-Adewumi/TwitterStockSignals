@@ -10,7 +10,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN useradd --uid 10001 --create-home appuser \
     && mkdir -p /data \
-    && cp /app/signals.db /data/signals.db \
     && chown -R appuser:appuser /data
 
 ENV CONFIG_PATH=/app/config.yaml \
