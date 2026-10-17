@@ -36,3 +36,8 @@ htmlcov/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+
+# Runtime history is stored in volumes or workflow artifacts, not source control.
+signals.db*
+signals.csv
+runs.csv

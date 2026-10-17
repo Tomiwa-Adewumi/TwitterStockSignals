@@ -1,6 +1,27 @@
 # Twitter Stock Signals API
 
-A FastAPI backend that monitors curated X (Twitter) accounts, extracts stock ticker mentions, researches them, and persists BUY/SELL/HOLD/INVESTIGATE signals. The original scheduled email pipeline remains available as a CLI.
+A FastAPI backend for asynchronous research processing: accept a job, persist its lifecycle, call external data/AI adapters, and expose results through a paginated API. The original scheduled digest remains available as a CLI.
+
+**Engineering focus:** recoverable jobs, transactional persistence, input validation, adapter-boundary tests, and container delivery. The service supports one application instance; generated signals are not evidence of investment performance.
+
+[Architecture](docs/architecture.md) · [CI](https://github.com/Tomiwa-Adewumi/TwitterStockSignals/actions/workflows/tests.yml)
+
+## Try it without credentials
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python demo.py
+```
+
+This runs the real orchestration and SQLite persistence with synthetic adapters, prints the completed run and one `DEMO` signal, and measures local elapsed time. It makes no network or email calls. Timing excludes real provider latency and is not a production benchmark.
+
+```json
+{"kind": "synthetic-offline-demo", "signal_count": 1}
+```
+
+The full output also contains the stored run, signal, and measured elapsed time.
 
 ---
 
@@ -16,10 +37,10 @@ Tweets (X API v2) → Ticker Extraction (Claude) → Research (yfinance + DuckDu
 3. **Research** — yfinance pulls fundamentals; DuckDuckGo fetches recent news per ticker
 4. **Load history** — SQLite (`signals.db`) provides the last 30 days of signals as context
 5. **Analyze** — Claude produces BUY/SELL/HOLD/INVESTIGATE signals with reasoning and confidence levels
-6. **Persist** — New signals are saved to `signals.db`, which is committed back to the repo
+6. **Persist** — New signals are saved to `signals.db`, which is stored in a persistent volume or workflow snapshot
 7. **Email** — An HTML digest is sent via Gmail SMTP with a signal table + raw tweets
 
-**Cost:** ~$0.01–0.05/day (Claude API only; yfinance and DuckDuckGo are free).
+**Cost:** varies with provider plans, model, input volume, and retries; no measured production cost is claimed here.
 
 ---
 
@@ -57,7 +78,7 @@ Tweets (X API v2) → Ticker Extraction (Claude) → Research (yfinance + DuckDu
 | `database.py` | SQLite read/write for signal history |
 | `emailer.py` | HTML email builder + Gmail SMTP sender |
 | `config.yaml` | Users, email settings, AI model config |
-| `signals.db` | SQLite history (tracked in git, grows over time) |
+| `signals.db` | Runtime SQLite history (ignored by Git) |
 | `.env.example` | Template for local secrets |
 | `.github/workflows/digest.yml` | GitHub Actions workflow |
 
@@ -83,7 +104,7 @@ These are set as GitHub Actions secrets (Settings → Secrets and variables → 
 | `TWITTER_BEARER_TOKEN` | X API v2 Bearer Token (from [developer.x.com](https://developer.x.com)) |
 | `ANTHROPIC_API_KEY` | From <https://console.anthropic.com> |
 
-**Get your Bearer Token:** Go to [developer.x.com](https://developer.x.com) → Your App → Keys & Tokens → Bearer Token. The free tier allows ~1,500 tweets/month.
+**Get your Bearer Token:** Go to [developer.x.com](https://developer.x.com) → Your App → Keys & Tokens → Bearer Token. Check the provider dashboard for your account’s current access and quota.
 
 The HTTP service additionally requires an `API_KEY` of your choosing for
 `POST /analysis`; the scheduled CLI workflow does not.
@@ -97,7 +118,9 @@ The HTTP service additionally requires an `API_KEY` of your choosing for
 3. The workflow runs automatically every day at **07:00 UTC**
 4. You can also trigger it manually via **Actions → Daily Digest → Run workflow**
 
-After each run, the workflow commits the updated `signals.db` back to the repo (with `[skip ci]` to avoid loops), so signal history accumulates over time.
+After each run, the workflow saves `signals.db` as a `digest-state` artifact and restores the newest snapshot on the next run. The initial migration reads the final tracked database from Git history. Source history is no longer updated by digest runs.
+
+Artifacts expire after 90 days and are not permanent backups. An expired latest snapshot stops the workflow instead of silently starting over. Deleting all snapshots causes the migration seed to be used again; restore an external backup before running if that occurs. For durable operation, use the container's persistent volume, schedule the CLI on that host, and back up the database independently. Existing history remains recoverable in Git history.
 
 ---
 
@@ -230,7 +253,7 @@ ai:
 
 ## Monitoring Signal History
 
-`signals.db` is a SQLite database committed to the repo after each run. Inspect it locally:
+`signals.db` is an ignored runtime database. Download the `digest-state` artifact or use the persistent container volume, then inspect it locally:
 
 ```bash
 # View recent signals
@@ -261,7 +284,7 @@ If you see `401 Unauthorized` or `403 Forbidden` from the Twitter API:
 
 ### Rate limits
 
-If you see `429 Too Many Requests`, you have hit the X API free tier limit (~1,500 tweets/month). Options:
+If you see `429 Too Many Requests`, you have hit an account-specific X API rate limit. Options:
 - Reduce the number of tracked users in `config.yaml`
 - Upgrade to a paid X API tier
 - Increase the delay between requests in `researcher.py`
